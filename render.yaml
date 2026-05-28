@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: collaborative-editor-server
+    runtime: node
+    rootDir: collaborative-editor-server
+    plan: starter
+    buildCommand: cd collaborative-editor-server && npm install
+    startCommand: cd collaborative-editor-server && npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
