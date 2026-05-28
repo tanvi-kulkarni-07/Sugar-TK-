@@ -1,0 +1,90 @@
+{
+  "name": "collaborative-editor",
+  "displayName": "ninjaTK",
+  "description": "Real-time collaborative code editing with shared debugging, terminal, voice and video call features",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.120.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Collaborative Editor",
+      "properties": {
+        "collaborative-editor.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Socket.io server URL used by the collaborative editor extension."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "collaborative-editor.startSession",
+        "title": "Start Collaborative Session"
+      },
+      {
+        "command": "collaborative-editor.stopSession",
+        "title": "Stop Collaborative Session"
+      },
+      {
+        "command": "collaborative-editor.inviteParticipant",
+        "title": "Invite Participant to Session"
+      },
+      {
+        "command": "collaborative-editor.showParticipants",
+        "title": "Show Session Participants"
+      },
+      {
+        "command": "collaborative-editor.openSharedTerminal",
+        "title": "Open Shared Terminal"
+      },
+      {
+        "command": "collaborative-editor.startSharedDebug",
+        "title": "Start Shared Debugging"
+      },
+      {
+        "command": "collaborative-editor.stopSharedDebug",
+        "title": "Stop Shared Debugging"
+      },
+      {
+        "command": "collaborative-editor.startVideoCall",
+        "title": "Start Video/Voice Call"
+      },
+      {
+        "command": "collaborative-editor.endVideoCall",
+        "title": "End Video/Voice Call"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.120.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "webpack": "^5.105.3",
+    "webpack-cli": "^6.0.1"
+  }
+}
