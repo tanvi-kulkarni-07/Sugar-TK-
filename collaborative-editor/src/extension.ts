@@ -2,12 +2,13 @@ import * as vscode from 'vscode';
 import { CollaborationSessionManager } from './collaborationSession';
 
 let sessionManager: CollaborationSessionManager | undefined;
+const DEFAULT_SERVER_URL = 'https://sugar-tk.onrender.com';
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log('Collaborative Editor Extension activated!');
 
   const configuration = vscode.workspace.getConfiguration('collaborative-editor');
-  const serverUrl = configuration.get<string>('serverUrl', 'http://localhost:3000');
+  const serverUrl = configuration.get<string>('serverUrl', DEFAULT_SERVER_URL);
 
   sessionManager = new CollaborationSessionManager(context, context.extensionUri, serverUrl);
 

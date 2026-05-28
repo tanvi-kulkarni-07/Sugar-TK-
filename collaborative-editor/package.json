@@ -16,8 +16,8 @@
       "properties": {
         "collaborative-editor.serverUrl": {
           "type": "string",
-          "default": "http://localhost:3000",
-          "description": "Socket.io server URL used by the collaborative editor extension."
+          "default": "https://sugar-tk.onrender.com",
+          "description": "Socket.io server URL used by the collaborative editor extension. Override this to use a local or different hosted server."
         }
       }
     },

@@ -37,7 +37,7 @@ export class ServerClient {
   private isConnected: boolean = false;
 
   constructor(
-    serverUrl: string = 'http://localhost:3000',
+    serverUrl: string = 'https://sugar-tk.onrender.com',
     userId: string = generateUserId(),
     userName: string = 'User',
     email: string = ''
