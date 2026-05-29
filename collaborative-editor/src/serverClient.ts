@@ -35,6 +35,8 @@ export class ServerClient {
   private email: string;
   private listeners: Map<string, Function[]> = new Map();
   private isConnected: boolean = false;
+  private connectPromise: Promise<void> | null = null;
+  private socketListenersRegistered = false;
 
   constructor(
     serverUrl: string = 'https://sugar-tk.onrender.com',
@@ -48,11 +50,35 @@ export class ServerClient {
     this.email = email;
   }
 
+  updateUserProfile(userName: string, email: string): void {
+    this.userName = userName;
+    this.email = email;
+
+    if (this.socket && this.sessionId) {
+      this.socket.emit('participant-update', {
+        sessionId: this.sessionId,
+        userId: this.userId,
+        userName: this.userName,
+        email: this.email
+      });
+    }
+  }
+
   async connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.isConnected) {
-        resolve();
-        return;
+    if (this.isConnected) {
+      return;
+    }
+
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+
+    this.connectPromise = new Promise((resolve, reject) => {
+      if (this.socket) {
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+        this.socket = null;
+        this.socketListenersRegistered = false;
       }
 
       this.socket = io(this.serverUrl, {
@@ -63,30 +89,50 @@ export class ServerClient {
         transports: ['websocket', 'polling']
       });
 
-      this.socket.on('connect', () => {
+      const socket = this.socket;
+
+      const finishInitialConnect = () => {
+        socket.off('connect_error', failInitialConnect);
+        this.connectPromise = null;
+        resolve();
+      };
+
+      const failInitialConnect = (error: Error) => {
+        socket.off('connect', finishInitialConnect);
+        this.connectPromise = null;
+        reject(error);
+      };
+
+      socket.on('connect', () => {
         console.log('Connected to collaborative editor server');
         this.isConnected = true;
         this.setupEventListeners();
-        resolve();
       });
 
-      this.socket.on('connect_error', (error: Error) => {
+      socket.on('connect_error', (error: Error) => {
         console.error('Connection error:', error);
-        reject(error);
       });
 
-      this.socket.on('disconnect', () => {
+      socket.on('disconnect', () => {
         this.isConnected = false;
         this.emit('disconnected', {});
       });
+
+      socket.once('connect', finishInitialConnect);
+      socket.once('connect_error', failInitialConnect);
     });
+
+    return this.connectPromise;
   }
 
   disconnect(): void {
     if (this.socket) {
+      this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
       this.isConnected = false;
+      this.connectPromise = null;
+      this.socketListenersRegistered = false;
     }
   }
 
@@ -97,7 +143,7 @@ export class ServerClient {
         return;
       }
 
-      this.sessionId = sessionId;
+      const previousSessionId = this.sessionId;
 
       this.socket.emit('join-session', {
         sessionId,
@@ -106,14 +152,19 @@ export class ServerClient {
         email: this.email
       });
 
+      const handleSessionInfo = (sessionInfo: SessionInfo) => {
+        clearTimeout(timeout);
+        this.sessionId = sessionInfo.id || sessionId;
+        resolve(sessionInfo);
+      };
+
       const timeout = setTimeout(() => {
+        this.socket?.off('session-info', handleSessionInfo);
+        this.sessionId = previousSessionId;
         reject(new Error('Timeout joining session'));
       }, 5000);
 
-      this.socket.once('session-info', (sessionInfo: SessionInfo) => {
-        clearTimeout(timeout);
-        resolve(sessionInfo);
-      });
+      this.socket.once('session-info', handleSessionInfo);
     });
   }
 
@@ -259,7 +310,11 @@ export class ServerClient {
   // call browser-only APIs. All peer-connection logic lives exclusively in the
   // webview JS. ServerClient simply relays the signalling messages.
   private setupEventListeners(): void {
-    if (!this.socket) return;
+    if (!this.socket || this.socketListenersRegistered) {
+      return;
+    }
+
+    this.socketListenersRegistered = true;
 
     const forward = (event: string) => {
       this.socket!.on(event, (data: any) => this.emit(event, data));
@@ -267,6 +322,7 @@ export class ServerClient {
 
     forward('participant-joined');
     forward('participant-left');
+    forward('participant-updated');
     forward('code-edit');
     forward('cursor-update');
     forward('selection-update');
@@ -327,11 +383,13 @@ export class ServerClient {
     }
   }
 
-  on(event: string, callback: Function): void {
+  on(event: string, callback: Function): vscode.Disposable {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
     this.listeners.get(event)!.push(callback);
+
+    return new vscode.Disposable(() => this.off(event, callback));
   }
 
   off(event: string, callback: Function): void {
@@ -492,7 +550,9 @@ export class WebRTCManager {
   }
 
   async handleAnswer(remoteUserId: string, answer: RTCSessionDescriptionInit): Promise<void> {
-    if (!this.browserContext) return;
+    if (!this.browserContext) {
+      return;
+    }
     const pc = this.peerConnections.get(remoteUserId);
     if (pc) {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
@@ -500,7 +560,9 @@ export class WebRTCManager {
   }
 
   async handleICECandidate(remoteUserId: string, candidate: any): Promise<void> {
-    if (!this.browserContext) return;
+    if (!this.browserContext) {
+      return;
+    }
     const pc = this.peerConnections.get(remoteUserId);
     if (pc && candidate) {
       try {
@@ -561,11 +623,23 @@ export class WebRTCManager {
     });
   }
 
-  on(event: string, callback: Function): void {
+  on(event: string, callback: Function): vscode.Disposable {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
     this.listeners.get(event)!.push(callback);
+
+    return new vscode.Disposable(() => {
+      const callbacks = this.listeners.get(event);
+      if (!callbacks) {
+        return;
+      }
+
+      const index = callbacks.indexOf(callback);
+      if (index > -1) {
+        callbacks.splice(index, 1);
+      }
+    });
   }
 
   private emit(event: string, data: any): void {

@@ -1,12 +1,17 @@
 import * as vscode from 'vscode';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { CollaborativePanel } from './webviewPanel';
 import { ServerClient, SessionInfo, WebRTCManager } from './serverClient';
+
+const execFileAsync = promisify(execFile);
 
 export interface WorkspaceSessionState {
   sessionId?: string;
   userId: string;
   userName: string;
   email: string;
+  identityConfirmed?: boolean;
 }
 
 export class WorkspaceCollaborationSession {
@@ -59,7 +64,45 @@ export class WorkspaceCollaborationSession {
   }
 
   async connect(): Promise<void> {
+    await this.ensureUserProfile();
     await this.serverClient.connect();
+  }
+
+  async setIdentity(): Promise<WorkspaceSessionState | undefined> {
+    const defaults = await resolveDefaultIdentity(this.workspaceFolder);
+    const currentName = hasUsableIdentity(this.persistedState)
+      ? this.persistedState.userName
+      : defaults.userName;
+    const currentEmail = hasUsableIdentity(this.persistedState)
+      ? this.persistedState.email
+      : defaults.email;
+
+    const userName = await vscode.window.showInputBox({
+      title: 'Collaboration Display Name',
+      prompt: 'This name appears to other collaborators.',
+      value: currentName,
+      ignoreFocusOut: true,
+      validateInput: value => value.trim() ? undefined : 'Enter a display name.'
+    });
+
+    if (userName === undefined) {
+      return undefined;
+    }
+
+    const email = await vscode.window.showInputBox({
+      title: 'Collaboration Email',
+      prompt: 'This email appears in the participant list.',
+      value: currentEmail,
+      ignoreFocusOut: true,
+      validateInput: value => isLikelyEmail(value.trim()) ? undefined : 'Enter a valid email address.'
+    });
+
+    if (email === undefined) {
+      return undefined;
+    }
+
+    await this.updateIdentity(userName.trim(), email.trim());
+    return { ...this.persistedState };
   }
 
   async showPanel(): Promise<void> {
@@ -240,6 +283,35 @@ export class WorkspaceCollaborationSession {
       this.sharedTerminal = undefined;
     }
   }
+
+  private async ensureUserProfile(): Promise<void> {
+    if (hasUsableIdentity(this.persistedState)) {
+      this.serverClient.updateUserProfile(
+        this.persistedState.userName,
+        this.persistedState.email
+      );
+      return;
+    }
+
+    const defaults = await resolveDefaultIdentity(this.workspaceFolder);
+    if (defaults.userName && defaults.email) {
+      await this.updateIdentity(defaults.userName, defaults.email);
+      return;
+    }
+
+    const identity = await this.setIdentity();
+    if (!identity) {
+      throw new Error('A collaboration display name and email are required.');
+    }
+  }
+
+  private async updateIdentity(userName: string, email: string): Promise<void> {
+    this.persistedState.userName = userName;
+    this.persistedState.email = email;
+    this.persistedState.identityConfirmed = true;
+    this.serverClient.updateUserProfile(userName, email);
+    await this.saveState(this.persistedState);
+  }
 }
 
 export class CollaborationSessionManager {
@@ -339,6 +411,10 @@ export class CollaborationSessionManager {
     this.getOrCreateSession(workspaceFolder).sendICECandidate(targetUserId, candidate);
   }
 
+  async setIdentity(workspaceFolder: vscode.WorkspaceFolder): Promise<WorkspaceSessionState | undefined> {
+    return this.getOrCreateSession(workspaceFolder).setIdentity();
+  }
+
   isConnected(workspaceFolder: vscode.WorkspaceFolder): boolean {
     return this.getOrCreateSession(workspaceFolder).isConnectedToServer();
   }
@@ -374,13 +450,16 @@ export class CollaborationSessionManager {
       return existing;
     }
 
-    const storedState = this.getStoredSessionState(key) ?? this.createDefaultSessionState();
+    const storedState = this.getStoredSessionState(key);
+    const initialState = storedState
+      ? { ...storedState, userId: generateUserId() }
+      : this.createDefaultSessionState();
     const session = new WorkspaceCollaborationSession(
       this.context,
       this.extensionUri,
       workspaceFolder,
       this.serverUrl,
-      storedState,
+      initialState,
       state => this.persistSessionState(key, state)
     );
 
@@ -415,12 +494,70 @@ export class CollaborationSessionManager {
   private createDefaultSessionState(): WorkspaceSessionState {
     return {
       userId: generateUserId(),
-      userName: 'User ' + Math.floor(Math.random() * 1000),
-      email: 'user@example.com'
+      userName: '',
+      email: '',
+      identityConfirmed: false
     };
   }
 }
 
 function generateUserId(): string {
   return 'user_' + Math.random().toString(36).substr(2, 9);
+}
+
+function hasUsableIdentity(state: WorkspaceSessionState): boolean {
+  return Boolean(
+    state.userName.trim() &&
+      state.email.trim() &&
+      state.email !== 'user@example.com' &&
+      !/^User \d+$/.test(state.userName)
+  );
+}
+
+function isLikelyEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+async function resolveDefaultIdentity(
+  workspaceFolder: vscode.WorkspaceFolder
+): Promise<{ userName: string; email: string }> {
+  const [userName, email] = await Promise.all([
+    readGitConfigValue('user.name', workspaceFolder),
+    readGitConfigValue('user.email', workspaceFolder)
+  ]);
+
+  return {
+    userName: userName ?? '',
+    email: email ?? ''
+  };
+}
+
+async function readGitConfigValue(
+  key: 'user.name' | 'user.email',
+  workspaceFolder: vscode.WorkspaceFolder
+): Promise<string | undefined> {
+  const lookups: Array<{ args: string[]; cwd?: string }> = [];
+
+  if (workspaceFolder.uri.scheme === 'file') {
+    lookups.push({
+      args: ['config', key],
+      cwd: workspaceFolder.uri.fsPath
+    });
+  }
+
+  lookups.push({ args: ['config', '--global', key] });
+
+  for (const lookup of lookups) {
+    try {
+      const { stdout } = await execFileAsync('git', lookup.args, { cwd: lookup.cwd });
+      const value = stdout.toString().trim();
+      if (value) {
+        return value;
+      }
+    } catch {
+      // Git may not be installed, or this workspace may not have local Git config.
+    }
+  }
+
+  return undefined;
 }

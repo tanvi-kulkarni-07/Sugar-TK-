@@ -4,7 +4,6 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import { exec } from 'child_process';
-import { promisify } from 'util';
 
 const app = express();
 const server = http.createServer(app);
@@ -16,6 +15,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
+const ENABLE_REMOTE_COMMAND_EXECUTION = process.env.ENABLE_REMOTE_COMMAND_EXECUTION === 'true';
 
 // CORS middleware
 app.use(cors());
@@ -24,6 +24,42 @@ app.use(express.json());
 // Session storage
 const sessions = new Map();
 const userSessions = new Map();
+const activeCalls = new Map();
+
+function findSocketIdForUser(sessionId, userId) {
+  for (const [socketId, session] of userSessions.entries()) {
+    if (session.sessionId === sessionId && session.userId === userId) {
+      return socketId;
+    }
+  }
+
+  return null;
+}
+
+function emitToSessionUser(sessionId, userId, event, payload) {
+  const socketId = findSocketIdForUser(sessionId, userId);
+  if (!socketId) {
+    return false;
+  }
+
+  io.to(socketId).emit(event, payload);
+  return true;
+}
+
+function buildSessionEvent(session, extra = {}) {
+  return {
+    ...session.getSessionInfo(),
+    ...extra
+  };
+}
+
+function clearCallsForUser(sessionId, userId) {
+  for (const [callId, call] of activeCalls.entries()) {
+    if (call.sessionId === sessionId && (call.initiatorId === userId || call.targetId === userId)) {
+      activeCalls.delete(callId);
+    }
+  }
+}
 
 // Session class
 class CollaborativeSession {
@@ -55,6 +91,18 @@ class CollaborativeSession {
   removeParticipant(userId) {
     this.participants.delete(userId);
     this.updatedAt = new Date();
+  }
+
+  updateParticipant(userId, userData) {
+    const participant = this.participants.get(userId);
+    if (!participant) {
+      return false;
+    }
+
+    participant.userName = userData.userName;
+    participant.email = userData.email;
+    this.updatedAt = new Date();
+    return true;
   }
 
   recordEdit(userId, edit) {
@@ -159,12 +207,11 @@ io.on('connection', (socket) => {
     console.log(`User ${userName} (${userId}) joined session ${sessionId}`);
 
     // Notify all participants in session
-    io.to(sessionId).emit('participant-joined', {
+    io.to(sessionId).emit('participant-joined', buildSessionEvent(session, {
       userId,
       userName,
-      email,
-      participants: session.getParticipants()
-    });
+      email
+    }));
 
     // Send session info to the newly joined user
     socket.emit('session-info', session.getSessionInfo());
@@ -178,10 +225,8 @@ io.on('connection', (socket) => {
       const session = sessions.get(sessionId);
       if (session) {
         session.removeParticipant(userId);
-        io.to(sessionId).emit('participant-left', {
-          userId,
-          participants: session.getParticipants()
-        });
+        clearCallsForUser(sessionId, userId);
+        io.to(sessionId).emit('participant-left', buildSessionEvent(session, { userId }));
 
         // Delete empty sessions
         if (session.participants.size === 0) {
@@ -192,6 +237,22 @@ io.on('connection', (socket) => {
 
     userSessions.delete(socket.id);
     socket.leave(sessionId || '');
+  });
+
+  socket.on('participant-update', (data) => {
+    const { sessionId, userId, userName, email } = data;
+    const session = sessions.get(sessionId);
+
+    if (!session || !session.participants.has(userId)) {
+      return;
+    }
+
+    session.updateParticipant(userId, { userName, email });
+    io.to(sessionId).emit('participant-updated', buildSessionEvent(session, {
+      userId,
+      userName,
+      email
+    }));
   });
 
   // Code edit event
@@ -320,12 +381,29 @@ io.on('connection', (socket) => {
   socket.on('terminal-command', (data) => {
     const { sessionId, userId, command, output } = data;
     const session = sessions.get(sessionId);
+    const safeCommand = typeof command === 'string' ? command.trim() : '';
 
-    if (session) {
-      session.addTerminalOutput(`[${userId}] $ ${command}`);
-      
-      // Execute command asynchronously
-      exec(command, { maxBuffer: 1024 * 1024 * 5, shell: true }, (error, stdout, stderr) => {
+    if (session && safeCommand) {
+      session.addTerminalOutput(`[${userId}] $ ${safeCommand}`);
+
+      if (!ENABLE_REMOTE_COMMAND_EXECUTION) {
+        const sharedOutput =
+          typeof output === 'string' && output.trim()
+            ? output
+            : 'Command execution is disabled on the collaboration server.';
+
+        session.addTerminalOutput(sharedOutput);
+        io.to(sessionId).emit('terminal-output', {
+          userId,
+          command: safeCommand,
+          output: sharedOutput,
+          error: false,
+          timestamp: new Date()
+        });
+        return;
+      }
+
+      exec(safeCommand, { maxBuffer: 1024 * 1024 * 5, shell: true }, (error, stdout, stderr) => {
         const result = error 
           ? (stderr || error.message)
           : stdout;
@@ -335,7 +413,7 @@ io.on('connection', (socket) => {
         // Broadcast terminal output to all participants
         io.to(sessionId).emit('terminal-output', {
           userId,
-          command,
+          command: safeCommand,
           output: result,
           error: !!error,
           timestamp: new Date()
@@ -345,8 +423,8 @@ io.on('connection', (socket) => {
       // Send immediate acknowledgment
       io.to(sessionId).emit('terminal-output', {
         userId,
-        command,
-        output: `[Executing: ${command}]`,
+        command: safeCommand,
+        output: `[Executing: ${safeCommand}]`,
         error: false,
         timestamp: new Date()
       });
@@ -357,17 +435,40 @@ io.on('connection', (socket) => {
   socket.on('call-start', (data) => {
     const { sessionId, userId, callType, targetId } = data; // callType: 'voice' or 'video'
     const callId = uuidv4();
+    const session = sessions.get(sessionId);
+
+    if (!session || !session.participants.has(userId)) {
+      return;
+    }
+
+    activeCalls.set(callId, {
+      sessionId,
+      initiatorId: userId,
+      targetId: targetId || null,
+      callType
+    });
     
     // If targeting a specific user, send them the request
     if (targetId) {
-      socket.to(sessionId).emit('call-request', {
+      const payload = {
         initiatorId: userId,
         callId,
         targetId,
         callType,
         sessionId,
         timestamp: new Date()
-      });
+      };
+
+      const sent = emitToSessionUser(sessionId, targetId, 'call-request', payload);
+      if (!sent) {
+        activeCalls.delete(callId);
+        socket.emit('call-rejected', {
+          rejecterId: targetId,
+          callId,
+          reason: 'Participant unavailable',
+          timestamp: new Date()
+        });
+      }
     } else {
       // Broadcast to all in session
       io.to(sessionId).emit('call-started', {
@@ -382,25 +483,55 @@ io.on('connection', (socket) => {
 
   socket.on('call-accept', (data) => {
     const { sessionId, userId, callId } = data;
-    io.to(sessionId).emit('call-accepted', {
+    const call = activeCalls.get(callId);
+    if (call && (call.sessionId !== sessionId || (call.targetId && call.targetId !== userId))) {
+      return;
+    }
+
+    const payload = {
       acceptorId: userId,
       callId,
       timestamp: new Date()
-    });
+    };
+
+    if (call?.targetId) {
+      emitToSessionUser(sessionId, call.initiatorId, 'call-accepted', payload);
+      emitToSessionUser(sessionId, userId, 'call-accepted', payload);
+      return;
+    }
+
+    io.to(sessionId).emit('call-accepted', payload);
   });
 
   socket.on('call-reject', (data) => {
     const { sessionId, userId, callId, reason } = data;
-    io.to(sessionId).emit('call-rejected', {
+    const call = activeCalls.get(callId);
+    if (call && (call.sessionId !== sessionId || (call.targetId && call.targetId !== userId))) {
+      return;
+    }
+
+    const payload = {
       rejecterId: userId,
       callId,
       reason,
       timestamp: new Date()
-    });
+    };
+
+    if (call?.targetId) {
+      emitToSessionUser(sessionId, call.initiatorId, 'call-rejected', payload);
+      emitToSessionUser(sessionId, userId, 'call-rejected', payload);
+      activeCalls.delete(callId);
+      return;
+    }
+
+    io.to(sessionId).emit('call-rejected', payload);
+    activeCalls.delete(callId);
   });
 
   socket.on('call-end', (data) => {
     const { sessionId, userId } = data;
+    clearCallsForUser(sessionId, userId);
+
     io.to(sessionId).emit('call-ended', {
       initiatorId: userId,
       timestamp: new Date()
@@ -409,7 +540,7 @@ io.on('connection', (socket) => {
 
   socket.on('call-signal', (data) => {
     const { sessionId, to, signal } = data;
-    socket.to(sessionId).emit('call-signal', {
+    emitToSessionUser(sessionId, to, 'call-signal', {
       from: socket.id,
       to,
       signal,
@@ -420,7 +551,7 @@ io.on('connection', (socket) => {
   // WebRTC signaling events
   socket.on('webrtc-offer', (data) => {
     const { sessionId, from, to, offer } = data;
-    io.to(sessionId).emit('webrtc-offer', {
+    emitToSessionUser(sessionId, to, 'webrtc-offer', {
       from,
       to,
       offer,
@@ -430,7 +561,7 @@ io.on('connection', (socket) => {
 
   socket.on('webrtc-answer', (data) => {
     const { sessionId, from, to, answer } = data;
-    io.to(sessionId).emit('webrtc-answer', {
+    emitToSessionUser(sessionId, to, 'webrtc-answer', {
       from,
       to,
       answer,
@@ -440,7 +571,7 @@ io.on('connection', (socket) => {
 
   socket.on('webrtc-ice-candidate', (data) => {
     const { sessionId, from, to, candidate } = data;
-    io.to(sessionId).emit('webrtc-ice-candidate', {
+    emitToSessionUser(sessionId, to, 'webrtc-ice-candidate', {
       from,
       to,
       candidate,
@@ -456,10 +587,8 @@ io.on('connection', (socket) => {
       const session = sessions.get(sessionId);
       if (session) {
         session.removeParticipant(userId);
-        io.to(sessionId).emit('participant-left', {
-          userId,
-          participants: session.getParticipants()
-        });
+        clearCallsForUser(sessionId, userId);
+        io.to(sessionId).emit('participant-left', buildSessionEvent(session, { userId }));
 
         // Delete empty sessions
         if (session.participants.size === 0) {

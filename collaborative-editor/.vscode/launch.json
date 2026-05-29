@@ -10,12 +10,54 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}"
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--disable-extensions"
 			],
 			"outFiles": [
 				"${workspaceFolder}/dist/**/*.js"
 			],
 			"preLaunchTask": "${defaultBuildTask}"
+		},
+		{
+			"name": "Run Extension Window 1",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--user-data-dir=${workspaceFolder}/.vscode-test/window-1/user-data",
+				"--extensions-dir=${workspaceFolder}/.vscode-test/window-1/extensions",
+				"--new-window",
+				"--disable-extensions"
+			],
+			"outFiles": [
+				"${workspaceFolder}/dist/**/*.js"
+			]
+		},
+		{
+			"name": "Run Extension Window 2",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--user-data-dir=${workspaceFolder}/.vscode-test/window-2/user-data",
+				"--extensions-dir=${workspaceFolder}/.vscode-test/window-2/extensions",
+				"--new-window",
+				"--disable-extensions"
+			],
+			"outFiles": [
+				"${workspaceFolder}/dist/**/*.js"
+			]
+		}
+	],
+	"compounds": [
+		{
+			"name": "Run Two Extension Windows",
+			"configurations": [
+				"Run Extension Window 1",
+				"Run Extension Window 2"
+			],
+			"preLaunchTask": "${defaultBuildTask}",
+			"stopAll": false
 		}
 	]
 }

@@ -120,6 +120,46 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const showParticipants = vscode.commands.registerCommand(
+    'collaborative-editor.showParticipants',
+    async () => {
+      const workspaceFolder = await resolveWorkspaceFolder();
+      if (!workspaceFolder) {
+        return;
+      }
+
+      if (!sessionManager!.isSessionActive(workspaceFolder)) {
+        vscode.window.showWarningMessage('No active session. Start or join a session first.');
+        return;
+      }
+
+      await sessionManager!.openPanel(workspaceFolder);
+      const sessionId = sessionManager!.getSessionId(workspaceFolder);
+      vscode.window.showInformationMessage(
+        `Participants are shown in the collaboration panel for session ${sessionId}.`
+      );
+    }
+  );
+
+  const setIdentity = vscode.commands.registerCommand(
+    'collaborative-editor.setIdentity',
+    async () => {
+      const workspaceFolder = await resolveWorkspaceFolder();
+      if (!workspaceFolder) {
+        return;
+      }
+
+      const identity = await sessionManager!.setIdentity(workspaceFolder);
+      if (!identity) {
+        return;
+      }
+
+      vscode.window.showInformationMessage(
+        `Collaboration identity set to ${identity.userName} <${identity.email}>`
+      );
+    }
+  );
+
   const openSharedTerminal = vscode.commands.registerCommand(
     'collaborative-editor.openSharedTerminal',
     async () => {
@@ -226,17 +266,24 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const endCurrentCall = async () => {
+    const workspaceFolder = await resolveWorkspaceFolder();
+    if (!workspaceFolder) {
+      return;
+    }
+
+    sessionManager!.endCall(workspaceFolder);
+    vscode.window.showInformationMessage(`Call ended for ${workspaceFolder.name}`);
+  };
+
   const endCall = vscode.commands.registerCommand(
     'collaborative-editor.endCall',
-    async () => {
-      const workspaceFolder = await resolveWorkspaceFolder();
-      if (!workspaceFolder) {
-        return;
-      }
+    endCurrentCall
+  );
 
-      sessionManager!.endCall(workspaceFolder);
-      vscode.window.showInformationMessage(`Call ended for ${workspaceFolder.name}`);
-    }
+  const endVideoCall = vscode.commands.registerCommand(
+    'collaborative-editor.endVideoCall',
+    endCurrentCall
   );
 
   const showPanel = vscode.commands.registerCommand(
@@ -293,6 +340,8 @@ export async function activate(context: vscode.ExtensionContext) {
     joinSession,
     stopSession,
     inviteParticipant,
+    showParticipants,
+    setIdentity,
     openSharedTerminal,
     startSharedDebug,
     stopSharedDebug,
@@ -300,6 +349,7 @@ export async function activate(context: vscode.ExtensionContext) {
     startVideoCall,
     startVoiceCall,
     endCall,
+    endVideoCall,
     showPanel,
     docChangeListener,
     cursorChangeListener,

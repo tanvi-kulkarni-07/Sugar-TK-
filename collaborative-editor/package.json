@@ -23,8 +23,16 @@
     },
     "commands": [
       {
+        "command": "collaborative-editor.connectToServer",
+        "title": "Connect to Collaborative Server"
+      },
+      {
         "command": "collaborative-editor.startSession",
         "title": "Start Collaborative Session"
+      },
+      {
+        "command": "collaborative-editor.joinSession",
+        "title": "Join Collaborative Session"
       },
       {
         "command": "collaborative-editor.stopSession",
@@ -39,6 +47,10 @@
         "title": "Show Session Participants"
       },
       {
+        "command": "collaborative-editor.setIdentity",
+        "title": "Set Collaboration Identity"
+      },
+      {
         "command": "collaborative-editor.openSharedTerminal",
         "title": "Open Shared Terminal"
       },
@@ -51,12 +63,24 @@
         "title": "Stop Shared Debugging"
       },
       {
+        "command": "collaborative-editor.setBreakpoint",
+        "title": "Set Shared Breakpoint"
+      },
+      {
         "command": "collaborative-editor.startVideoCall",
         "title": "Start Video/Voice Call"
       },
       {
-        "command": "collaborative-editor.endVideoCall",
-        "title": "End Video/Voice Call"
+        "command": "collaborative-editor.startVoiceCall",
+        "title": "Start Voice Call"
+      },
+      {
+        "command": "collaborative-editor.endCall",
+        "title": "End Voice/Video Call"
+      },
+      {
+        "command": "collaborative-editor.showPanel",
+        "title": "Show Collaborative Editor Panel"
       }
     ]
   },

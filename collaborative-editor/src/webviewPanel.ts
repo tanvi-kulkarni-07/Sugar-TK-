@@ -41,7 +41,7 @@ export class CollaborativePanel {
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
-      this.clearSessionRefresh();
+      this.clearPanelResources();
     });
 
     this.panel.webview.onDidReceiveMessage(message => {
@@ -64,8 +64,22 @@ export class CollaborativePanel {
     }
   }
 
+  private clearPanelResources(): void {
+    this.clearSessionRefresh();
+    this.disposables.forEach(disposable => disposable.dispose());
+    this.disposables = [];
+  }
+
   private setupServerListeners(): void {
-    this.serverClient.on('participant-joined', (data: any) => {
+    const onServer = (event: string, callback: Function) => {
+      this.disposables.push(this.serverClient.on(event, callback));
+    };
+
+    const onWebRTC = (event: string, callback: Function) => {
+      this.disposables.push(this.webrtcManager.on(event, callback));
+    };
+
+    onServer('participant-joined', (data: any) => {
       this.currentSessionInfo = data;
       this.postMessage({ command: 'participant-joined', data });
       this.postMessage({
@@ -78,7 +92,7 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('participant-left', (data: any) => {
+    onServer('participant-left', (data: any) => {
       this.currentSessionInfo = data;
       this.postMessage({ command: 'participant-left', data });
       this.postMessage({
@@ -87,20 +101,25 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('code-edit', (data: any) => {
+    onServer('participant-updated', (data: any) => {
+      this.currentSessionInfo = data;
+      this.postMessage({ command: 'participant-updated', data });
+    });
+
+    onServer('code-edit', (data: any) => {
       this.postMessage({ command: 'code-edit', data });
       this.postMessage({ command: 'activity-ping', data: { userId: data.userId, type: 'edit' } });
     });
 
-    this.serverClient.on('cursor-update', (data: any) => {
+    onServer('cursor-update', (data: any) => {
       this.postMessage({ command: 'cursor-update', data });
     });
 
-    this.serverClient.on('selection-update', (data: any) => {
+    onServer('selection-update', (data: any) => {
       this.postMessage({ command: 'selection-update', data });
     });
 
-    this.serverClient.on('debug-started', (data: any) => {
+    onServer('debug-started', (data: any) => {
       this.postMessage({ command: 'debug-started', data });
       this.postMessage({
         command: 'notify',
@@ -108,7 +127,7 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('debug-stopped', (data: any) => {
+    onServer('debug-stopped', (data: any) => {
       this.postMessage({ command: 'debug-stopped', data });
       this.postMessage({
         command: 'notify',
@@ -116,11 +135,11 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('debug-step', (data: any) => {
+    onServer('debug-step', (data: any) => {
       this.postMessage({ command: 'debug-step', data });
     });
 
-    this.serverClient.on('breakpoint-set', (data: any) => {
+    onServer('breakpoint-set', (data: any) => {
       this.postMessage({ command: 'breakpoint-set', data });
       this.postMessage({
         command: 'notify',
@@ -128,11 +147,11 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('breakpoint-removed', (data: any) => {
+    onServer('breakpoint-removed', (data: any) => {
       this.postMessage({ command: 'breakpoint-removed', data });
     });
 
-    this.serverClient.on('terminal-output', (data: any) => {
+    onServer('terminal-output', (data: any) => {
       this.postMessage({ command: 'terminal-output', data });
       this.postMessage({
         command: 'activity-ping',
@@ -140,7 +159,7 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('call-started', (data: any) => {
+    onServer('call-started', (data: any) => {
       this.postMessage({ command: 'call-started', data });
       this.postMessage({
         command: 'notify',
@@ -148,7 +167,7 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('call-ended', (data: any) => {
+    onServer('call-ended', (data: any) => {
       this.postMessage({ command: 'call-ended', data });
       this.postMessage({
         command: 'notify',
@@ -156,7 +175,7 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('call-request', (data: any) => {
+    onServer('call-request', (data: any) => {
       this.postMessage({ command: 'call-request', data });
       this.postMessage({
         command: 'notify',
@@ -168,7 +187,7 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('call-accepted', (data: any) => {
+    onServer('call-accepted', (data: any) => {
       this.postMessage({ command: 'call-accepted', data });
       this.postMessage({
         command: 'notify',
@@ -176,7 +195,7 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('call-rejected', (data: any) => {
+    onServer('call-rejected', (data: any) => {
       this.postMessage({ command: 'call-rejected', data });
       this.postMessage({
         command: 'notify',
@@ -188,19 +207,19 @@ export class CollaborativePanel {
       });
     });
 
-    this.serverClient.on('webrtc-offer', (data: any) => {
+    onServer('webrtc-offer', (data: any) => {
       this.postMessage({ command: 'webrtc-offer', data });
     });
 
-    this.serverClient.on('webrtc-answer', (data: any) => {
+    onServer('webrtc-answer', (data: any) => {
       this.postMessage({ command: 'webrtc-answer', data });
     });
 
-    this.serverClient.on('webrtc-ice-candidate', (data: any) => {
+    onServer('webrtc-ice-candidate', (data: any) => {
       this.postMessage({ command: 'webrtc-ice-candidate', data });
     });
 
-    this.webrtcManager.on('local-stream-ready', (_data: any) => {
+    onWebRTC('local-stream-ready', (_data: any) => {
       this.postMessage({ command: 'local-stream-ready', data: { ready: true } });
       this.postMessage({
         command: 'notify',
@@ -208,22 +227,22 @@ export class CollaborativePanel {
       });
     });
 
-    this.webrtcManager.on('remote-stream', (data: any) => {
+    onWebRTC('remote-stream', (data: any) => {
       this.postMessage({ command: 'remote-stream', data: { userId: data.userId } });
     });
 
-    this.webrtcManager.on('connection-state-change', (data: any) => {
+    onWebRTC('connection-state-change', (data: any) => {
       this.postMessage({ command: 'connection-state-change', data });
     });
 
-    this.webrtcManager.on('media-error', (data: any) => {
+    onWebRTC('media-error', (data: any) => {
       this.postMessage({
         command: 'notify',
         data: { type: 'error', message: 'Media error: ' + data.error, duration: 3000 }
       });
     });
 
-    this.serverClient.on('disconnected', (_data: any) => {
+    onServer('disconnected', (_data: any) => {
       this.postMessage({ command: 'disconnected', data: {} });
       this.postMessage({
         command: 'notify',
@@ -974,6 +993,7 @@ export class CollaborativePanel {
           break;
         case 'participant-joined':
         case 'participant-left':
+        case 'participant-updated':
           updateParticipants(msg.data);
           break;
         case 'debug-started':
@@ -1002,14 +1022,15 @@ export class CollaborativePanel {
           break;
         case 'call-request':
           handleIncomingCall(msg.data);
-          addActivity('Incoming call', 'A participant is requesting ' + (msg.data.callType || 'voice') + ' chat.');
           break;
         case 'call-accepted':
           handleCallAccepted(msg.data);
-          addActivity('Call accepted', 'WebRTC negotiation is starting.');
           break;
         case 'call-rejected':
-          showToast('warning', 'Call declined: ' + (msg.data.reason || 'User unavailable'));
+          if (pendingOutgoingCallTarget || msg.data.rejecterId === currentUserId) {
+            showToast('warning', 'Call declined: ' + (msg.data.reason || 'User unavailable'));
+            pendingOutgoingCallTarget = null;
+          }
           break;
         case 'local-stream-ready':
           document.getElementById('callSection').style.display = 'block';
@@ -1239,7 +1260,13 @@ export class CollaborativePanel {
       if (!command) {
         return;
       }
-      vscode.postMessage({ command: 'terminal-command', data: { command, output: 'Command executed' } });
+      vscode.postMessage({
+        command: 'terminal-command',
+        data: {
+          command,
+          output: 'Command shared. Server-side execution is disabled by default.'
+        }
+      });
       input.value = '';
     }
 
@@ -1264,6 +1291,8 @@ export class CollaborativePanel {
       closeAllPeerConnections();
       stopLocalStream();
       isCallActive = false;
+      pendingOutgoingCallTarget = null;
+      incomingCallId = null;
       renderCallStatus();
     }
 
@@ -1272,10 +1301,15 @@ export class CollaborativePanel {
     }
 
     function handleIncomingCall(data) {
+      if (data.targetId && data.targetId !== currentUserId) {
+        return;
+      }
+
       incomingCallId = data.callId || Math.random().toString(36).substr(2, 9);
       const label = data.callType === 'video' ? 'Video' : 'Voice';
       document.getElementById('callRequestDetails').textContent = 'Type: ' + label + ' call';
       document.getElementById('callRequestBox').style.display = 'block';
+      addActivity('Incoming call', 'A participant is requesting ' + (data.callType || 'voice') + ' chat.');
     }
 
     async function acceptIncomingCall() {
@@ -1287,6 +1321,9 @@ export class CollaborativePanel {
       vscode.postMessage({ command: 'accept-call', data: { callId: incomingCallId } });
       document.getElementById('callRequestBox').style.display = 'none';
       document.getElementById('callSection').style.display = 'block';
+      isCallActive = true;
+      renderCallStatus();
+      addActivity('Call accepted', 'Waiting for media negotiation to start.');
     }
 
     function rejectIncomingCall() {
@@ -1351,10 +1388,20 @@ export class CollaborativePanel {
     }
 
     async function handleCallAccepted(data) {
+      if (data.acceptorId && data.acceptorId === currentUserId) {
+        isCallActive = true;
+        renderCallStatus();
+        return;
+      }
+
       if (!pendingOutgoingCallTarget) {
         return;
       }
+
       try {
+        isCallActive = true;
+        renderCallStatus();
+        addActivity('Call accepted', 'WebRTC negotiation is starting.');
         const pc = createPeerConnection(pendingOutgoingCallTarget);
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
         await pc.setLocalDescription(offer);
@@ -1366,6 +1413,10 @@ export class CollaborativePanel {
     }
 
     async function handleWebRTCOffer(data) {
+      if ((data.to && data.to !== currentUserId) || data.from === currentUserId) {
+        return;
+      }
+
       try {
         await ensureLocalMedia();
         const pc = createPeerConnection(data.from);
@@ -1380,6 +1431,10 @@ export class CollaborativePanel {
     }
 
     async function handleWebRTCAnswer(data) {
+      if ((data.to && data.to !== currentUserId) || data.from === currentUserId) {
+        return;
+      }
+
       try {
         const pc = peerConnections.get(data.from);
         if (pc) {
@@ -1392,6 +1447,10 @@ export class CollaborativePanel {
     }
 
     async function handleWebRTCICE(data) {
+      if ((data.to && data.to !== currentUserId) || data.from === currentUserId) {
+        return;
+      }
+
       try {
         const pc = peerConnections.get(data.from);
         if (pc && data.candidate) {
@@ -1469,14 +1528,11 @@ export class CollaborativePanel {
   }
 
   dispose(): void {
-    this.clearSessionRefresh();
+    this.clearPanelResources();
 
     if (this.panel) {
       this.panel.dispose();
       this.panel = undefined;
     }
-
-    this.disposables.forEach(disposable => disposable.dispose());
-    this.disposables = [];
   }
 }

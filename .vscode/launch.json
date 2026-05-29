@@ -5,10 +5,38 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Extension",
+      "name": "Extension Window 1",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/collaborative-editor"]
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/collaborative-editor",
+        "--user-data-dir=${workspaceFolder}/collaborative-editor/.vscode-test/window-1/user-data",
+        "--extensions-dir=${workspaceFolder}/collaborative-editor/.vscode-test/window-1/extensions",
+        "--new-window",
+        "--disable-extensions"
+      ]
+    },
+    {
+      "name": "Extension Window 2",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/collaborative-editor",
+        "--user-data-dir=${workspaceFolder}/collaborative-editor/.vscode-test/window-2/user-data",
+        "--extensions-dir=${workspaceFolder}/collaborative-editor/.vscode-test/window-2/extensions",
+        "--new-window",
+        "--disable-extensions"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Extension: Two Windows",
+      "configurations": [
+        "Extension Window 1",
+        "Extension Window 2"
+      ],
+      "stopAll": false
     }
   ]
 }

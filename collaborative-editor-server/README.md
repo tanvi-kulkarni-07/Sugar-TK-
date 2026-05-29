@@ -7,7 +7,7 @@ A real-time WebSocket server for enabling collaborative code editing, shared deb
 - **Real-time Code Editing** - Multiple users can edit code simultaneously
 - **Cursor & Selection Tracking** - See where other users are working
 - **Shared Debugging** - Debug sessions visible to all participants
-- **Shared Terminal** - Execute and see commands from all participants
+- **Shared Terminal** - Share terminal commands/output with all participants. Server-side command execution is disabled by default.
 - **Voice/Video Calling** - WebRTC-based communication
 - **Session Management** - Create and manage collaborative sessions
 - **Participant Tracking** - Know who's in your session
@@ -83,6 +83,8 @@ Response: { sessionCount, sessions }
 ### Terminal Events
 - `terminal-command` - Send terminal command
 - `terminal-output` - Receive terminal output
+
+By default, the server broadcasts shared terminal activity without executing commands on the host. Set `ENABLE_REMOTE_COMMAND_EXECUTION=true` only in a trusted environment if you intentionally want the server to run received commands.
 
 ### Call Events
 - `call-start` - Start voice/video call
